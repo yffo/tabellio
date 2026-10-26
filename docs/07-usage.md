@@ -32,9 +32,9 @@ aliases: [acme-editor, 编辑器]  # 可选：作者给的同义说法，只参�
 正文上限 **400 字 / 200 token** —— 超了闸门会拒，并且告诉你超了多少。
 超过一条事实该有的量，说明该拆成多条（`tabellio import` 会自动切）。
 
-## 十六个命令
+## 十七个命令
 
-`setup` / `doctor` / `status` / `index` / `search` / `recall` / `explain` / `verify` / `consolidate` / `read` / `remember` / `capture` / `inbox` / `hook` / `schedule` / `import`（另有 `paths` 查路径）。
+`setup` / `doctor` / `health` / `status` / `index` / `search` / `recall` / `explain` / `verify` / `consolidate` / `read` / `remember` / `capture` / `inbox` / `hook` / `schedule` / `import`（另有 `paths` 查路径）。
 
 `setup` 只写宿主的 MCP 配置，不碰记忆库；`hook` 把 Claude Code 的会话结束事件接到候选箱（默认不装）；`capture` / `inbox` 是候选的**写入与批准**两端。`explain` / `verify` 是**回执（receipt）的读取端**：`recall` 可以把一次判断落成可核验的回执，之后再解释或复核，不需要重跑检索、不需要模型。`consolidate` 是**批量改库的入口**：默认只出计划，`--apply` 才动；元数据操作只改字段，内容类操作会写目标并关闭源，两者都能 `--undo`。`--merge` / `--summarize` / `--promote` 默认只出**内容类提案**，`--apply` 才执行；`--auto` 自动发现近似重复，但只写待批准提案，不直接改库。`schedule` 在 macOS 上给这条发现加一个可选的 launchd 定时器，仍然只产提案。`doctor` 是只读体检：把库、宿主配置、钩子和定时任务的状态收成一份报告，不修任何东西。
 
@@ -816,7 +816,60 @@ node bin/memory doctor --verify            # 额外让宿主 CLI 自查连接（
 
 `hosts.items` 不包含 `preview` / 配置正文；`--verify` 时多一个 `hosts.verification`，沿用 `connected` / `configured` / `unverified` / `unavailable` / `failed` / `missing` 六级。**边界**：它不是修复器，也不会替你看 Cursor 的 GUI；`setup` / `hook install` / `schedule install` 仍要你确认后自己跑。
 
+### 17. `health` —— 最近用得怎么样
+
+```bash
+node bin/memory health                 # 最近 7 天
+node bin/memory health --days 30       # 换窗口
+node bin/memory health --json          # 机器读（趋势脚本用这个）
+```
+
+它只做一件事：把散在 `runs/*.jsonl` 里的使用证据聚合成一张表，让「要不要调参、哪条路在浪费」
+用数字回答。零模型、只读、不写任何文件。
+
+```text
+tabellio health — 最近 7 天（2026-10-19 → 2026-10-26）
+库：/Users/you/memory/tabellio
+规模：1414 条笔记（窗口内新增 620）· 候选待批 0 · 解析失败 0
+召回：200 次 → 注入 105（53%）· 意图闸拦 68 · 拒答 11 · 裁决丢弃 14
+注入：每次 2.54 条 · 760 字（p90 1234，≈380 token）
+延迟：p50 1583ms · p90 3235ms · 慢轮(≥1.5s) 64/105 · 冷启动(≥2s) 34
+judge：窗口内调用 11 次 · p50 1864ms · 语义命中 47 轮
+反馈：3 条（corrected 3）
+```
+
+口径（读之前先知道，免得拿数字下错判断）：
+
+- **召回审计来自宿主插件**（`runs/recall-audit-YYYY-MM.jsonl`）；CLI 单独用、没有插件的库
+  只有规模/候选/反馈，其余整块缺席并在 `warnings` 里说明。缺日志就写缺，不编 0。
+- **延迟只统计真正注入了记忆的轮次**：被意图闸/拒答挡掉的轮次本来就快，混在一起会把
+  中位数稀释得好看但没用。
+- **token 是估算**：审计只记注入块字符数，按中文约 2 字/token 折算。
+- **窗口内新增**按文件 mtime 或 `valid_from` 判断，导入会一次性抬高这个数，不是「日常写入」。
+- `judge` 的调用次数来自 `runs/usage.jsonl`；`语义命中` 是开了语义补充的轮次。
+
+JSON 形状（窗口、六个分组、`warnings` 字符串数组）：
+
+```json
+{
+  "store": "…", "generatedAt": 0, "window": {"days": 7, "since": 0, "until": 0},
+  "notes": {"total": 0, "added": 0, "candidates": 0, "parseFailures": 0, "bytes": 0},
+  "recall": {"turns": 0, "injected": 0, "suppressed": 0, "refused": 0, "judgedOut": 0,
+             "notice": 0, "deduped": 0, "other": 0, "injectRate": 0},
+  "injection": {"notesMean": 0, "charsP50": 0, "charsP90": 0, "charsMax": 0,
+                "tokensApproxP50": 0, "tokensApproxP90": 0},
+  "latency": {"samples": 0, "p50": 0, "p90": 0, "max": 0, "slow": 0, "slowRate": 0, "cold": 0},
+  "judge": {"calls": 0, "msP50": 0, "msP90": 0, "semanticTurns": 0},
+  "feedback": {"total": 0, "bySignal": {}},
+  "warnings": []
+}
+```
+
+退出码：0；库里有解析失败时退 1（和 `status` 一致，让 CI/脚本能发现）。它是**观察器**，
+不修库、不重建索引、不调模型——修复仍走 `doctor` 给的建议命令。
+
 ## 评测（开发用，可零模型）
+
 
 ```bash
 node bench/run-eval.mjs --same-corpus            # 判据 1：三臂同语料，零模型

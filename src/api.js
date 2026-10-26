@@ -2055,3 +2055,5 @@ export {
   DEFAULT_THRESHOLDS,
   DEFAULT_TOKENS,
 };
+
+export { buildHealthReport, formatHealth } from './health.js';

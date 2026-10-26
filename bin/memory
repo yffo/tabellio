@@ -46,6 +46,8 @@ import {
   STORE_CAPS,
   MAX_NOTE_CHARS,
   MAX_NOTE_TOKENS,
+  buildHealthReport,
+  formatHealth,
 } from '../src/api.js';
 import { readSourceIndex } from '../src/import/engramory.js';
 import { planSetup, applySetup } from '../src/setup.js';
@@ -71,6 +73,7 @@ export const USAGE = `tabellio — 显式记忆服务（M1 + M2：读取回执 /
 用法：
   tabellio status [--store DIR] [--rebuild-index] [--json]
   tabellio index  [--store DIR] [--rebuild] [--json]             # 索引层体检（默认只读）
+  tabellio health [--store DIR] [--days N] [--json]               # 最近用得怎么样（只读；读 runs/*.jsonl）
   tabellio search --query "<词>" [--budget-tokens N] [--kinds a,b] [--trusts a,b]
                  [--min-relevance F] [--min-score F] [--min-coverage F] [--no-refuse]
                  [--ledger] [--json]      # --no-refuse = 检索口径，由调用方判断要不要答
@@ -445,7 +448,7 @@ export async function main(argv, io = {}) {
     out.write(`${VERSION}\n`);
     return 0;
   }
-  if (!['status', 'index', 'search', 'read', 'remember', 'capture', 'inbox', 'doctor', 'setup', 'hook', 'schedule', 'import', 'recall', 'explain', 'verify', 'consolidate', 'paths', 'feedback'].includes(command)) {
+  if (!['status', 'index', 'health', 'search', 'read', 'remember', 'capture', 'inbox', 'doctor', 'setup', 'hook', 'schedule', 'import', 'recall', 'explain', 'verify', 'consolidate', 'paths', 'feedback'].includes(command)) {
     err.write(`未知命令：${command}\n\n${USAGE}\n`);
     return 2;
   }
@@ -471,6 +474,11 @@ export async function main(argv, io = {}) {
         emit(r, { json, human: humanIndex(r) });
         // 有笔记从索引走不到 = 索引这条路还有盲区，用 1 退出让脚本/CI 能发现。
         return r.unreachableCount > 0 || r.missingFiles.length > 0 ? 1 : 0;
+      }
+      case 'health': {
+        const report = buildHealthReport(ctx.store, { days: numArg(args.days, 7) });
+        emit(report, { json, human: formatHealth(report) });
+        return report.notes.parseFailures > 0 ? 1 : 0;
       }
       case 'search': {
         // 参数校验**必须先做**：先查「库存在吗」的话，`tabellio search`（忘了 --query）
