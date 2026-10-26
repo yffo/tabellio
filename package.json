@@ -1,6 +1,6 @@
 {
   "name": "tabellio",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "显式记忆服务（CLI + MCP）：markdown 是唯一真相源，词法检索 + 预算感知选片，写入过闸门。零运行时依赖。",
   "type": "module",
   "private": false,
